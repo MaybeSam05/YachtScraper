@@ -19,6 +19,17 @@ password = os.getenv('password')
 def main():
     login()
 
+
+def backup_login():
+    driver = webdriver.Chrome()
+    driver.get(login_link)
+
+    time.sleep(30)
+
+    # Manually enter username/password for browser to remember you
+
+    driver.close()
+
 def login():
     driver = webdriver.Chrome()
     driver.get(login_link)
