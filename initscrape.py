@@ -9,18 +9,18 @@ import time
 import os
 from dotenv import load_dotenv
 import time
+#import psycopg2
 
 load_dotenv()
 
 login_link = os.getenv('login_link')
 scrape_link = os.getenv('scrape_link')
-username = os.getenv('username')
-password = os.getenv('password')
+username = os.getenv('site_username')
+password = os.getenv('site_password')
 
 def main():
     driver = login()
     data = scrape(driver)
-
     for index, x in enumerate(data):
         if index < 50:
             print(x)
@@ -33,7 +33,7 @@ def backup_login():
 
     # Manually enter username/password for browser to remember you
 
-    driver.close()
+    return driver
 
 def login():
     driver = webdriver.Chrome()
@@ -76,15 +76,12 @@ def scrape(driver):
     seen_row_count = 0
 
     while True:
-        # Wait until there are rows
         WebDriverWait(driver, 10).until(
             EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'table tbody#results tr'))
         )
 
-        # Get all current rows
         rows = driver.find_elements(By.CSS_SELECTOR, 'table tbody#results tr')
 
-        # Only process new rows
         new_rows = rows[seen_row_count:]
 
         for row in new_rows:
@@ -95,19 +92,33 @@ def scrape(driver):
 
                 image_tag = cells[0].find_element(By.TAG_NAME, "img")
                 image_url = image_tag.get_attribute("src") if image_tag else ""
-
-                length = cells[1].text.strip()
+                yacht_name = ""
+                guests = ""
+                length_lines = cells[1].text.strip().splitlines()
                 year = cells[2].text.strip()
-                specs = cells[3].text.strip()
-                agent_info = cells[4].text.strip()
+                specs_lines = [line.strip() for line in cells[3].text.strip().splitlines()]
+                agent_lines = cells[4].text.strip().splitlines()
+                yacht_id = agent_lines[0].replace("ID:", "").strip() if len(agent_lines) > 0 else ""
+                agent_name = agent_lines[1].strip() if len(agent_lines) > 1 else ""
                 season_info = cells[5].text.strip()
+                length_ft = length_lines[0].replace("ft", "").strip() if len(length_lines) > 0 else ""
+                length_m = length_lines[1].replace("m", "").strip() if len(length_lines) > 1 else ""
+
+                for line in specs_lines:
+                    if line.lower().startswith("guests"):
+                        guests = line.replace("Guests:", "").strip()
+                    elif line != "":
+                        yacht_name = line
 
                 all_data.append({
+                    "yacht_id": yacht_id,
                     "image": image_url,
-                    "length": length,
+                    "length_ft": length_ft,
+                    "length_m": length_m,
                     "year": year,
-                    "specs": specs,
-                    "agent": agent_info,
+                    "yacht_name": yacht_name,
+                    "guests": guests,
+                    "agent_name": agent_name,
                     "season": season_info,
                 })
 
@@ -115,9 +126,8 @@ def scrape(driver):
                 print(f"⚠️ Error parsing row: {e}")
                 continue
 
-        seen_row_count = len(rows)  # update row count tracker
+        seen_row_count = len(rows)  
 
-        # Try to click the Load More button
         try:
             load_more_btn = WebDriverWait(driver, 5).until(
                 EC.element_to_be_clickable((By.ID, "load_more_btn"))
