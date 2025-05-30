@@ -1,14 +1,14 @@
 from flask import Flask, jsonify, render_template
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support import expected_conditions as EC
-import time
-import os
+from selenium.common.exceptions import TimeoutException
 import psycopg2
+import os
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -22,6 +22,10 @@ db_password = os.getenv('db_password')
 
 app = Flask(__name__)
 
+@app.route("/")
+def home():
+    return render_template("index.html")
+
 @app.route("/scrape", methods=["GET"])
 def trigger_scrape():
     try:
@@ -29,12 +33,22 @@ def trigger_scrape():
         data = scrape(driver)
         conn = get_connection()
         save_to_db(data, conn)
-        return jsonify({"status": "success", "message": f"{len(data)} rows scraped and saved to database."}), 200
+        return jsonify({"status": "success", "message": f"{len(data)} rows scraped and saved."})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 def login():
-    driver = webdriver.Chrome()
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.binary_location = "/usr/bin/google-chrome"
+
+    driver = webdriver.Chrome(
+        service=Service("/usr/local/bin/chromedriver"),
+        options=chrome_options
+    )
+
     driver.get(login_link)
     time.sleep(1)
 
@@ -78,7 +92,7 @@ def scrape(driver):
                     continue
 
                 image_tag = cells[0].find_element(By.TAG_NAME, "img")
-                image_url = image_tag.get_attribute("src") if image_tag else None
+                image_url = image_tag.getAttribute("src") if image_tag else None
                 yacht_name = ""
                 guests = ""
                 length_lines = cells[1].text.strip().splitlines()
@@ -121,7 +135,7 @@ def scrape(driver):
             )
             if load_more_btn.is_displayed():
                 load_more_btn.click()
-                print("🔄 Clicked 'Load More', waiting for new rows...")
+                print("🔄 Clicked 'Load More', waiting...")
                 time.sleep(3)
             else:
                 break
@@ -129,8 +143,7 @@ def scrape(driver):
             print("✅ No more pages to load.")
             break
 
-    print(f"✅ Finished scraping. Total new rows collected: {len(all_data)}")
-    driver.quit()
+    print(f"✅ Done. Collected {len(all_data)} rows.")
     return all_data
 
 def get_connection():
@@ -147,12 +160,10 @@ def save_to_db(data, conn):
     for yacht in data:
         cursor.execute(
             """
-            INSERT INTO moretti.yacht (
+            INSERT INTO yachtdb (
                 yacht_id, image, length_ft, length_m, year, yacht_name, guests, agent_name, season
             )
-            VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s
-            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (yacht_id) DO UPDATE SET
                 image = EXCLUDED.image,
                 length_ft = EXCLUDED.length_ft,
@@ -161,7 +172,7 @@ def save_to_db(data, conn):
                 yacht_name = EXCLUDED.yacht_name,
                 guests = EXCLUDED.guests,
                 agent_name = EXCLUDED.agent_name,
-                season = EXCLUDED.season
+                season = EXCLUDED.season;
             """,
             (
                 yacht['yacht_id'], yacht['image'], yacht['length_ft'], yacht['length_m'], yacht['year'],
@@ -170,11 +181,5 @@ def save_to_db(data, conn):
         )
     conn.commit()
     cursor.close()
-    print("✅ Data saved to database.")
+    print("✅ Data saved.")
 
-@app.route("/")
-def home():
-    return render_template("index.html")
-
-if __name__ == "__main__":
-    app.run(debug=True)
