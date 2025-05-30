@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Run Yacht Scraper</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 2rem;
+      text-align: center;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    #status {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Yacht Scraper Dashboard</h1>
+  <button onclick="runScraper()">Run Scraper</button>
+  <div id="status"></div>
+
+  <script>
+    function runScraper() {
+      const statusDiv = document.getElementById("status");
+      statusDiv.innerText = "⏳ Scraping in progress...";
+
+      fetch("/scrape")
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === "success") {
+            statusDiv.innerText = `✅ ${data.message}`;
+          } else {
+            statusDiv.innerText = `❌ Error: ${data.message}`;
+          }
+        })
+        .catch(err => {
+          statusDiv.innerText = `❌ Failed to reach server.`;
+          console.error(err);
+        });
+    }
+  </script>
+</body>
+</html>
