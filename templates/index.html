@@ -13,15 +13,24 @@
       padding: 10px 20px;
       font-size: 18px;
       cursor: pointer;
+      margin: 10px;
     }
     #status {
       margin-top: 20px;
+    }
+    .button-container {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
     }
   </style>
 </head>
 <body>
   <h1>Yacht Scraper Dashboard</h1>
-  <button onclick="runScraper()">Run Scraper</button>
+  <div class="button-container">
+    <button onclick="runScraper()">Run Scraper</button>
+    <button onclick="backupLogin()">Initial Login (Run this First)</button>
+  </div>
   <div id="status"></div>
 
   <script>
@@ -30,6 +39,25 @@
       statusDiv.innerText = "⏳ Scraping in progress...";
 
       fetch("/scrape")
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === "success") {
+            statusDiv.innerText = `✅ ${data.message}`;
+          } else {
+            statusDiv.innerText = `❌ Error: ${data.message}`;
+          }
+        })
+        .catch(err => {
+          statusDiv.innerText = `❌ Failed to reach server.`;
+          console.error(err);
+        });
+    }
+
+    function backupLogin() {
+      const statusDiv = document.getElementById("status");
+      statusDiv.innerText = "⏳ Opening backup login window...";
+
+      fetch("/backup-login")
         .then(res => res.json())
         .then(data => {
           if (data.status === "success") {

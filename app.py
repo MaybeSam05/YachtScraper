@@ -29,6 +29,14 @@ app = Flask(__name__)
 def home():
     return render_template("index.html")
 
+@app.route("/backup-login", methods=["GET"])
+def trigger_backup_login():
+    try:
+        driver = backup_login()
+        return jsonify({"status": "success", "message": "Backup login window opened. Please login manually."})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/scrape", methods=["GET"])
 def trigger_scrape():
     try:
@@ -69,6 +77,18 @@ def login():
     next_button_2.click()
     time.sleep(10)
 
+    return driver
+
+def backup_login():
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    
+    driver = webdriver.Chrome(options=chrome_options)
+    driver.get(login_link)
+    
+    time.sleep(2)  # Give time for the page to load
+    
     return driver
 
 def get_pdf_link(driver, row):
