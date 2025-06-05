@@ -1,6 +1,5 @@
 from flask import Flask, jsonify, render_template
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -17,8 +16,12 @@ login_link = os.getenv('login_link')
 scrape_link = os.getenv('scrape_link')
 username = os.getenv('site_username')
 password = os.getenv('site_password')
-db_username = os.getenv('db_username')
-db_password = os.getenv('db_password')
+
+SUPABASE_HOST = os.getenv('SUPABASE_HOST')
+SUPABASE_DB_PASSWORD = os.getenv('SUPABASE_DB_PASSWORD')
+SUPABASE_DB_USER = os.getenv('SUPABASE_DB_USER')
+SUPABASE_DB_NAME = os.getenv('SUPABASE_DB_NAME')
+SUPABASE_DB_PORT = os.getenv('SUPABASE_DB_PORT', '5432')
 
 app = Flask(__name__)
 
@@ -39,15 +42,11 @@ def trigger_scrape():
 
 def login():
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    # chrome_options.add_argument("--headless")  # Invisible Mode
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.binary_location = "/usr/bin/google-chrome"
 
-    driver = webdriver.Chrome(
-        service=Service("/usr/local/bin/chromedriver"),
-        options=chrome_options
-    )
+    driver = webdriver.Chrome(options=chrome_options)
 
     driver.get(login_link)
     time.sleep(1)
@@ -72,6 +71,46 @@ def login():
 
     return driver
 
+def get_pdf_link(driver, row):
+    try:
+        
+        cells = row.find_elements(By.TAG_NAME, "td")
+        
+        pdf_cell = cells[-1]  
+        pdf_button = pdf_cell.find_element(By.TAG_NAME, "a") 
+        
+        onclick_attr = pdf_button.get_attribute("onclick")
+        yacht_id = onclick_attr.split("(")[1].split(")")[0]
+        
+        driver.execute_script(f"pdfTemplateSelector({yacht_id})")
+        time.sleep(2) 
+
+        view_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "#broker_selector_modal button.btn-primary"))
+        )
+        driver.execute_script("arguments[0].click();", view_button)
+        time.sleep(2) 
+
+        windows = driver.window_handles
+        driver.switch_to.window(windows[-1]) 
+        pdf_url = driver.current_url
+        
+        driver.close()
+        driver.switch_to.window(windows[0]) 
+        
+        return pdf_url
+
+    except Exception as e:
+        print(f"Error getting PDF link: {e}")
+        try:
+            windows = driver.window_handles
+            if len(windows) > 1:
+                driver.close()
+                driver.switch_to.window(windows[0])
+        except:
+            pass
+        return None
+
 def scrape(driver):
     driver.get(scrape_link)
     time.sleep(1)
@@ -92,7 +131,7 @@ def scrape(driver):
                     continue
 
                 image_tag = cells[0].find_element(By.TAG_NAME, "img")
-                image_url = image_tag.getAttribute("src") if image_tag else None
+                image_url = image_tag.get_attribute("src") if image_tag else None
                 yacht_name = ""
                 guests = ""
                 length_lines = cells[1].text.strip().splitlines()
@@ -111,6 +150,9 @@ def scrape(driver):
                     elif line != "":
                         yacht_name = line
 
+                # Get PDF link
+                pdf_url = get_pdf_link(driver, row)
+
                 all_data.append({
                     "yacht_id": yacht_id,
                     "image": image_url,
@@ -121,6 +163,7 @@ def scrape(driver):
                     "guests": guests,
                     "agent_name": agent_name,
                     "season": season_info,
+                    "pdf_url": pdf_url
                 })
 
             except Exception as e:
@@ -148,11 +191,11 @@ def scrape(driver):
 
 def get_connection():
     return psycopg2.connect(
-        dbname="samarthverma",
-        user=db_username,
-        password=db_password,
-        host="localhost",
-        port=5432
+        host=SUPABASE_HOST,
+        port=SUPABASE_DB_PORT,
+        dbname=SUPABASE_DB_NAME,
+        user=SUPABASE_DB_USER,
+        password=SUPABASE_DB_PASSWORD,
     )
 
 def save_to_db(data, conn):
@@ -161,9 +204,9 @@ def save_to_db(data, conn):
         cursor.execute(
             """
             INSERT INTO yachtdb (
-                yacht_id, image, length_ft, length_m, year, yacht_name, guests, agent_name, season
+                yacht_id, image, length_ft, length_m, year, yacht_name, guests, agent_name, season, pdf_url
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (yacht_id) DO UPDATE SET
                 image = EXCLUDED.image,
                 length_ft = EXCLUDED.length_ft,
@@ -172,14 +215,18 @@ def save_to_db(data, conn):
                 yacht_name = EXCLUDED.yacht_name,
                 guests = EXCLUDED.guests,
                 agent_name = EXCLUDED.agent_name,
-                season = EXCLUDED.season;
+                season = EXCLUDED.season,
+                pdf_url = EXCLUDED.pdf_url;
             """,
             (
                 yacht['yacht_id'], yacht['image'], yacht['length_ft'], yacht['length_m'], yacht['year'],
-                yacht['yacht_name'], yacht['guests'], yacht['agent_name'], yacht['season']
+                yacht['yacht_name'], yacht['guests'], yacht['agent_name'], yacht['season'], yacht['pdf_url']
             )
         )
     conn.commit()
     cursor.close()
-    print("✅ Data saved.")
+    print("Data saved to database.")
+
+if __name__ == "__main__":
+    app.run(debug=True, port=5000)
 
